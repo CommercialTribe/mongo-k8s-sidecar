@@ -1,4 +1,4 @@
-const { Db, Server } = require('mongodb');
+const { Db, Server, Logger: MongoLogger } = require('mongodb');
 const async = require('async');
 const { mongoPort, mongoPassword, mongoUser, authenticatedMongo } = require('./config');
 const logger = require('./logger');
@@ -19,6 +19,7 @@ function getDb(host, done) {
   const db = new Db('local', new Server(host, mongoPort));
   db.open((err, db) => {
     if (err) return done(err);
+		MongoLogger.setLevel(process.env.LOG_LEVEL);
 		if (authenticatedMongo){
 			db.authenticate(mongoUser, mongoPassword, err => {
 				if (err) return done(err);
