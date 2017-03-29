@@ -42,6 +42,7 @@
     "ip": "^0.3.2",
     "moment": "^2.10.2",
     "mongodb": "^2.2.25",
-    "node-kubernetes-client": "^0.2.2"
+    "node-kubernetes-client": "^0.2.2",
+    "winston": "^2.3.1"
   }
 }

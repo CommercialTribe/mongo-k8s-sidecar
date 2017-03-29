@@ -1,18 +1,17 @@
 const Client = require('node-kubernetes-client');
-const config = require('./config');
-const fs = require('fs');
-
-const readToken = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token');
+const { k8sNamespace, k8sServiceAccountToken, k8sROServiceAddress, mongoPodLabelCollection } = require('./config');
+const logger = require('./logger');
 
 const client = new Client({
-  host: config.k8sROServiceAddress,
-  namespace: config.namespace,
-  protocol: 'https',
+	protocol: 'https',
   version: 'v1',
-  token: readToken
+  host: k8sROServiceAddress,
+  namespace: k8sNamespace,
+  token: k8sServiceAccountToken
 });
 
 function getMongoPods(done) {
+	logger.debug('Fetching mongo pods...')
   client.pods.get((err, podResult) => {
     if (err) {
       return done(err);
@@ -21,7 +20,7 @@ function getMongoPods(done) {
     for (const j in podResult) {
       pods = pods.concat(podResult[j].items)
     }
-    const labels = config.mongoPodLabelCollection;
+    const labels = mongoPodLabelCollection;
     const results = [];
     for (const i in pods) {
       const pod = pods[i];

@@ -5,6 +5,8 @@
     },
     "extends": "eslint:recommended",
     "rules": {
+        "brace-style": [ "error", "1tbs"],
+        "object-curly-spacing": ["error", "always"],
         "no-console": 0,
         "no-var": "error",
         "func-style": ["error", "declaration"],

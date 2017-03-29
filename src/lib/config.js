@@ -1,3 +1,7 @@
+const dns = require('dns');
+const fs = require('fs');
+const logger = require('./logger');
+
 function getMongoPodLabels() {
   return process.env.MONGO_SIDECAR_POD_LABELS || false;
 }
@@ -35,14 +39,13 @@ function getK8sClusterDomain() {
 // Raises a console warning if that is not the case.
 // @param clusterDomain the domain to verify.
 function verifyCorrectnessOfDomain(clusterDomain) {
-	const dns = require('dns');
 	if(clusterDomain && dns.getServers() && dns.getServers().length > 0) {
 		// In the case that we can resolve the DNS servers, we get the first and try to retrieve its host.
 		dns.reverse(dns.getServers()[0], (err, host) => {
 			if(err || host.length < 1 || !host[0].endsWith(clusterDomain)) {
-				console.warn("Possibly wrong cluster domain name! Detected '%s' but expected similar to: %s",  clusterDomain, host);
+				logger.warn("Possibly wrong cluster domain name! Detected '%s' but expected similar to: %s",  clusterDomain, host);
 			} else {
-				console.log("The cluster domain '%s' was successfully verified.", clusterDomain)
+				logger.info("The cluster domain '%s' was successfully verified.", clusterDomain)
 			}
 		});
 	}
@@ -52,7 +55,7 @@ function verifyCorrectnessOfDomain(clusterDomain) {
 function getK8sMongoServiceName() {
   const service = process.env.KUBERENETES_SERVICE;
 	if (service) {
-		console.log("Using service: %s", service);
+		logger.info("Using service: %s", service);
 		return service
 	}
 	throw "Missing environment variable: KUBERENETES_SERVICE"
@@ -61,21 +64,21 @@ function getK8sMongoServiceName() {
 // @returns mongoPort this is the port on which the mongo instances run. Default is 27017.
 function getMongoDbPort() {
   const mongoPort = process.env.MONGO_PORT || 27017;
-  console.log("Using mongo port: %s", mongoPort);
+  logger.info("Using mongo port: %s", mongoPort);
   return mongoPort;
 }
 
 module.exports = {
 	authenticatedMongo: process.env.MONGO_USER && process.env.MONGO_PASSWORD,
+	mongoPort: getMongoDbPort(),
 	mongoUser: process.env.MONGO_USER,
 	mongoPassword: process.env.MONGO_PASSWORD,
-  namespace: process.env.KUBERENETES_NAMESPACE,
   loopSleepSeconds: process.env.MONGO_SIDECAR_SLEEP_SECONDS || 5,
   unhealthySeconds: process.env.MONGO_SIDECAR_UNHEALTHY_SECONDS || 15,
-  env: process.env.NODE_ENV || 'local',
   mongoPodLabelCollection: getMongoPodLabelCollection(),
+	k8sNamespace: process.env.KUBERENETES_NAMESPACE,
   k8sROServiceAddress: getk8sROServiceAddress(),
   k8sMongoServiceName: getK8sMongoServiceName(),
   k8sClusterDomain: getK8sClusterDomain(),
-  mongoPort: getMongoDbPort()
+	k8sServiceAccountToken: fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token'),
 };

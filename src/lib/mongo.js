@@ -1,6 +1,7 @@
 const { Db, Server } = require('mongodb');
 const async = require('async');
-const config = require('./config');
+const { mongoPort, mongoPassword, mongoUser, authenticatedMongo } = require('./config');
+const logger = require('./logger');
 
 const localhost = '127.0.0.1'; // Can access mongo as localhost from a sidecar
 
@@ -15,11 +16,11 @@ function getDb(host, done) {
 		}
 	}
   host = host || localhost;
-  const db = new Db('local', new Server(host, config.mongoPort));
+  const db = new Db('local', new Server(host, mongoPort));
   db.open((err, db) => {
     if (err) return done(err);
-		if (config.authenticatedMongo){
-			db.authenticate(config.mongoUser, config.mongoPassword, err => {
+		if (authenticatedMongo){
+			db.authenticate(mongoUser, mongoPassword, err => {
 				if (err) return done(err);
 				done(null, db);
 			})
@@ -44,7 +45,7 @@ function replSetGetStatus(db, done) {
 }
 
 function initReplSet(db, hostIpAndPort, done) {
-  console.log('initReplSet', hostIpAndPort);
+  logger.debug('initReplSet', hostIpAndPort);
 
   db.admin().command({ replSetInitiate: {} }, {}, err => {
     if (err) return done(err);
@@ -53,7 +54,7 @@ function initReplSet(db, hostIpAndPort, done) {
     replSetGetConfig(db, (err, config) => {
       if (err) return done(err);
       config.members[0].host = hostIpAndPort;
-      async.retry({times: 20, interval: 500}, callback => {
+      async.retry({ times: 20, interval: 500 }, callback => {
         replSetReconfig(db, config, false, callback);
       }, err => {
         if (err) return done(err);
@@ -64,7 +65,7 @@ function initReplSet(db, hostIpAndPort, done) {
 }
 
 function replSetReconfig(db, config, force, done) {
-  console.log('replSetReconfig', config);
+  logger.debug('replSetReconfig', config);
 
   config.version++;
 

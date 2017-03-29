@@ -1,11 +1,12 @@
-const mongo = require('./mongo');
-const k8s = require('./k8s');
-const config = require('./config');
 const ip = require('ip');
 const async = require('async');
 const moment = require('moment');
 const dns = require('dns');
 const os = require('os');
+const logger = require("./logger")
+const mongo = require('./mongo');
+const k8s = require('./k8s');
+const config = require('./config');
 
 const loopSleepSeconds = config.loopSleepSeconds;
 const unhealthySeconds = config.unhealthySeconds;
@@ -37,9 +38,7 @@ function workloop() {
   async.series([ k8s.getMongoPods, mongo.getDb ], (err, results) => {
     let db = null;
     if (err) {
-      if (Array.isArray(results) && results.length === 2) {
-        db = results[1];
-      }
+      if (Array.isArray(results) && results.length === 2) db = results[1];
       return finish(err, db);
     }
 
@@ -55,7 +54,7 @@ function workloop() {
     }
 
     if (!pods.length) {
-      return finish('No pods are currently running, probably just give them some time.');
+      return finish(new Error('No pods are currently running, probably just give them some time.'));
     }
 
     // Lets try and get the rs status for this mongo instance
@@ -79,14 +78,8 @@ function workloop() {
 }
 
 function finish(err, db) {
-  if (err) {
-    console.error('Error in workloop', err);
-  }
-
-  if (db && db.close) {
-    db.close();
-  }
-
+  if (err) logger.error('Error in workloop', err);
+  if (db && db.close) db.close();
   setTimeout(workloop, loopSleepSeconds * 1000);
 }
 
@@ -111,7 +104,7 @@ function inReplicaSet(db, pods, status, done) {
   }
 
   if (!primaryExists && podElection(pods)) {
-    console.log('Pod has been elected as a secondary to do primary work');
+    logger.info('Pod has been elected as a secondary to do primary work');
     return primaryWork(db, pods, members, true, done);
   }
 
@@ -133,8 +126,8 @@ function primaryWork(db, pods, members, shouldForce, done) {
   }
 
   if (addrToAdd.length || addrToRemove.length) {
-    console.log('Addresses to add:   ', addrToAdd);
-    console.log('Addresses to remove:', addrToRemove);
+    logger.debug('Addresses to add:   ', addrToAdd);
+    logger.debug('Addresses to remove:', addrToRemove);
 
     mongo.addNewReplSetMembers(db, addrToAdd, addrToRemove, shouldForce, done);
     return;
@@ -173,12 +166,12 @@ function notInReplicaSet(db, pods, done) {
 
     for (const i in results) {
       if (results[i]) {
-        return done(); //There's one in a rs, nothing to do
+        return done(); // There's one in a rs, nothing to do
       }
     }
 
     if (podElection(pods)) {
-      console.log('Pod has been elected for replica set initialization');
+      logger.info('Pod has been elected for replica set initialization');
       const primary = pods[0]; // After the sort election, the 0-th pod should be the primary.
       const primaryStableNetworkAddressAndPort = getPodStableNetworkAddressAndPort(primary);
       // Prefer the stable network ID over the pod IP, if present.
@@ -195,7 +188,7 @@ function invalidReplicaSet(db, pods, done) {
   // The replica set config has become invalid, probably due to catastrophic errors like all nodes going down
   // this will force re-initialize the replica set on this node. There is a small chance for data loss here
   // because it is forcing a reconfigure, but chances are recovering from the invalid state is more important
-  console.log("Invalid set, re-initializing");
+  logger.warn("Invalid set, re-initializing");
   const addrToAdd = addrToAddLoop(pods, []);
   mongo.addNewReplSetMembers(db, addrToAdd, [], true, (err) => {
     done(err, db);
