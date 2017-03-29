@@ -13,9 +13,7 @@ const client = new Client({
 function getMongoPods(done) {
 	logger.debug('Fetching mongo pods...')
   client.pods.get((err, podResult) => {
-    if (err) {
-      return done(err);
-    }
+    if (err) return done(err);
     let pods = [];
     for (const j in podResult) {
       pods = pods.concat(podResult[j].items)
@@ -24,10 +22,10 @@ function getMongoPods(done) {
     const results = [];
     for (const i in pods) {
       const pod = pods[i];
-      if (podContainsLabels(pod, labels)) {
-        results.push(pod);
-      }
+      if (podContainsLabels(pod, labels)) results.push(pod);
     }
+
+		logger.debug(`Got pods:\n${results}`)
 
     done(null, results);
   });
