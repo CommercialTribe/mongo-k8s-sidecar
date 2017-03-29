@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "forever src/index.js",
-    "watch": "forever -w src/index.js"
+    "watch": "forever -w src/index.js",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
@@ -29,6 +30,10 @@
   "homepage": "https://github.com/cvallance/mongo-k8s-sidecar",
   "devDependencies": {
     "chai": "^2.3.0",
+    "eslint": "^3.18.0",
+    "eslint-config-standard": "^7.1.0",
+    "eslint-plugin-promise": "^3.5.0",
+    "eslint-plugin-standard": "^2.1.1",
     "mocha": "^2.2.4"
   },
   "dependencies": {
@@ -36,7 +41,7 @@
     "forever": "^0.14.1",
     "ip": "^0.3.2",
     "moment": "^2.10.2",
-    "mongodb": "^2.0.28",
+    "mongodb": "^2.2.25",
     "node-kubernetes-client": "^0.2.2"
   }
 }

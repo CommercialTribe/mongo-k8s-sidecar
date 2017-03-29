@@ -1,10 +1,9 @@
-FROM node:latest
-MAINTAINER Charles Vallance <vallance.charles@gmail.com>
+FROM node:lts
 
-COPY . /opt/cvallance/mongo-k8s-sidecar
+ENV NODE_ENV production
 
-WORKDIR /opt/cvallance/mongo-k8s-sidecar
-
+ADD . /app
+WORKDIR /app
 RUN npm install
 
 CMD ["npm", "start"]
