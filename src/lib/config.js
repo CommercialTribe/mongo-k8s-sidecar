@@ -1,3 +1,5 @@
+var dns = require('dns');
+
 var getMongoPodLabels = function() {
   return process.env.MONGO_SIDECAR_POD_LABELS || false;
 };
@@ -31,25 +33,36 @@ var getK8sClusterDomain = function() {
   var domain = process.env.KUBERNETES_CLUSTER_DOMAIN || "cluster.local";
   verifyCorrectnessOfDomain(domain);
   return domain;
+};
 
-  /**
-   * Calls a reverse DNS lookup to ensure that the given custom domain name matches the actual one.
-   * Raises a console warning if that is not the case.
-   * @param clusterDomain the domain to verify.
-   */
-  function verifyCorrectnessOfDomain(clusterDomain) {
-    var dns = require('dns');
-    if(clusterDomain && dns.getServers() && dns.getServers().length > 0) {
-      // In the case that we can resolve the DNS servers, we get the first and try to retrieve its host.
-      dns.reverse(dns.getServers()[0], function(err, host) {
-        if(err || host.length < 1 || !host[0].endsWith(clusterDomain)) {
-          console.warn("Possibly wrong cluster domain name! Detected '%s' but expected similar to: %s",  clusterDomain, host);
-        } else {
-          console.log("The cluster domain '%s' was successfully verified.", clusterDomain)
-        }
-      });
-    }
+/**
+ * Calls a reverse DNS lookup to ensure that the given custom domain name matches the actual one.
+ * Raises a console warning if that is not the case.
+ * @param clusterDomain the domain to verify.
+ */
+var verifyCorrectnessOfDomain = function(clusterDomain) {
+  if (!clusterDomain) {
+    return;
   }
+
+  var servers = dns.getServers();
+  if (!servers || !servers.length) {
+    console.log("dns.getServers() didn't return any results when verifying the cluster domain '%s'.", clusterDomain);
+    return;
+  }
+
+  // In the case that we can resolve the DNS servers, we get the first and try to retrieve its host.
+  dns.reverse(servers[0], function(err, host) {
+    if (err) {
+      console.warn("Error occurred trying to verify the cluster domain '%s'",  clusterDomain);
+    }
+    else if (host.length < 1 || !host[0].endsWith(clusterDomain)) {
+      console.warn("Possibly wrong cluster domain name! Detected '%s' but expected similar to '%s'",  clusterDomain, host);
+    }
+    else {
+      console.log("The cluster domain '%s' was successfully verified.", clusterDomain);
+    }
+  });
 };
 
 /**
@@ -68,15 +81,44 @@ var getMongoDbPort = function() {
   return mongoPort;
 };
 
+/**
+ *  @returns boolean to define the RS as a configsvr or not. Default is false
+ */
+var isConfigRS = function() {
+  var configSvr = (process.env.CONFIG_SVR || '').trim().toLowerCase();
+  var configSvrBool = /^(?:y|yes|true|1)$/i.test(configSvr);
+  if (configSvrBool) {
+    console.log("ReplicaSet is configured as a configsvr");
+  }
+
+  return configSvrBool;
+};
+
+/**
+ * @returns boolean
+ */
+var stringToBool = function(boolStr) {
+  var isTrue = ( boolStr === 'true' ) || false;
+
+  return isTrue;
+};
+
 module.exports = {
   namespace: process.env.KUBE_NAMESPACE,
+  username: process.env.MONGODB_USERNAME,
+  password: process.env.MONGODB_PASSWORD,
+  database: process.env.MONGODB_DATABASE || 'local',
   loopSleepSeconds: process.env.MONGO_SIDECAR_SLEEP_SECONDS || 5,
   unhealthySeconds: process.env.MONGO_SIDECAR_UNHEALTHY_SECONDS || 15,
+  mongoSSLEnabled: stringToBool(process.env.MONGO_SSL_ENABLED),
+  mongoSSLAllowInvalidCertificates: stringToBool(process.env.MONGO_SSL_ALLOW_INVALID_CERTIFICATES),
+  mongoSSLAllowInvalidHostnames: stringToBool(process.env.MONGO_SSL_ALLOW_INVALID_HOSTNAMES),
   env: process.env.NODE_ENV || 'local',
   mongoPodLabels: getMongoPodLabels(),
   mongoPodLabelCollection: getMongoPodLabelCollection(),
   k8sROServiceAddress: getk8sROServiceAddress(),
   k8sMongoServiceName: getK8sMongoServiceName(),
   k8sClusterDomain: getK8sClusterDomain(),
-  mongoPort: getMongoDbPort()
+  mongoPort: getMongoDbPort(),
+  isConfigRS: isConfigRS(),
 };

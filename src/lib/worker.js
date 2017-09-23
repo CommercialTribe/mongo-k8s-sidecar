@@ -34,7 +34,10 @@ var workloop = function workloop() {
   }
 
   //Do in series so if k8s.getMongoPods fails, it doesn't open a db connection
-  async.series([ k8s.getMongoPods, mongo.getDb ], function(err, results) {
+  async.series([
+    k8s.getMongoPods,
+    mongo.getDb
+  ], function(err, results) {
     var db = null;
     if (err) {
       if (Array.isArray(results) && results.length === 2) {
@@ -69,7 +72,7 @@ var workloop = function workloop() {
           });
         }
         else if (err.code && err.code == 93) {
-          invalidReplicaSet(db, pods, function(err) {
+          invalidReplicaSet(db, pods, status, function(err) {
             finish(err, db);
           });
         }
@@ -130,30 +133,17 @@ var primaryWork = function(db, pods, members, shouldForce, done) {
   //Loop over all the pods we have and see if any of them aren't in the current rs members array
   //If they aren't in there, add them
   var addrToAdd = addrToAddLoop(pods, members);
-
-  //Separate loop for removing members
-  var addrToRemove = [];
-  for (var i  in members) {
-    var member = members[i];
-    if (memberShouldBeRemoved(member)) {
-      addrToRemove.push(member.name);
-    }
-  }
+  var addrToRemove = addrToRemoveLoop(members);
 
   if (addrToAdd.length || addrToRemove.length) {
-    console.log('Addresses to add:   ', addrToAdd);
-    console.log('Addresses to remove:', addrToRemove);
+    console.log('Addresses to add:    ', addrToAdd);
+    console.log('Addresses to remove: ', addrToRemove);
 
     mongo.addNewReplSetMembers(db, addrToAdd, addrToRemove, shouldForce, done);
     return;
   }
 
   done();
-};
-
-var memberShouldBeRemoved = function(member) {
-  return !member.health
-    && moment().subtract(unhealthySeconds, 'seconds').isAfter(member.lastHeartbeatRecv);
 };
 
 var notInReplicaSet = function(db, pods, done) {
@@ -190,7 +180,7 @@ var notInReplicaSet = function(db, pods, done) {
       var primary = pods[0]; // After the sort election, the 0-th pod should be the primary.
       var primaryStableNetworkAddressAndPort = getPodStableNetworkAddressAndPort(primary);
       // Prefer the stable network ID over the pod IP, if present.
-      var primaryAddressAndPort = primaryStableNetworkAddressAndPort ? primaryStableNetworkAddressAndPort : hostIpAndPort;
+      var primaryAddressAndPort = primaryStableNetworkAddressAndPort || hostIpAndPort;
       mongo.initReplSet(db, primaryAddressAndPort, done);
       return;
     }
@@ -199,13 +189,20 @@ var notInReplicaSet = function(db, pods, done) {
   });
 };
 
-var invalidReplicaSet = function(db, pods, done) {
+var invalidReplicaSet = function(db, pods, status, done) {
   // The replica set config has become invalid, probably due to catastrophic errors like all nodes going down
   // this will force re-initialize the replica set on this node. There is a small chance for data loss here
   // because it is forcing a reconfigure, but chances are recovering from the invalid state is more important
+  var members = [];
+  if (status && status.members) {
+    members = status.members;
+  }
+
   console.log("Invalid set, re-initializing");
-  var addrToAdd = addrToAddLoop(pods, []);
-  mongo.addNewReplSetMembers(db, addrToAdd, [], true, function(err) {
+  var addrToAdd = addrToAddLoop(pods, members);
+  var addrToRemove = addrToRemoveLoop(members);
+
+  mongo.addNewReplSetMembers(db, addrToAdd, addrToRemove, true, function(err) {
     done(err, db);
   });
 };
@@ -234,12 +231,12 @@ var addrToAddLoop = function(pods, members) {
     }
 
     var podIpAddr = getPodIpAddressAndPort(pod);
-    var podStableNetworkAdd = getPodStableNetworkAddressAndPort(pod);
+    var podStableNetworkAddr = getPodStableNetworkAddressAndPort(pod);
     var podInRs = false;
 
     for (var j in members) {
       var member = members[j];
-      if ((podIpAddr && member.name === podIpAddr) || (podStableNetworkAdd && member.name === podStableNetworkAdd)) {
+      if (member.name === podIpAddr || member.name === podStableNetworkAddr) {
         /* If we have the pod's ip or the stable network address already in the config, no need to read it. Checks both the pod IP and the
         * stable network ID - we don't want any duplicates - either one of the two is sufficient to consider the node present. */
         podInRs = true;
@@ -249,24 +246,40 @@ var addrToAddLoop = function(pods, members) {
 
     if (!podInRs) {
       // If the node was not present, we prefer the stable network ID, if present.
-      var addrToUse = podStableNetworkAdd ? podStableNetworkAdd : podIpAddr;
+      var addrToUse = podStableNetworkAddr || podIpAddr;
       addrToAdd.push(addrToUse);
     }
   }
   return addrToAdd;
 };
 
+var addrToRemoveLoop = function(members) {
+    var addrToRemove = [];
+    for (var i in members) {
+        var member = members[i];
+        if (memberShouldBeRemoved(member)) {
+            addrToRemove.push(member.name);
+        }
+    }
+    return addrToRemove;
+};
+
+var memberShouldBeRemoved = function(member) {
+    return !member.health
+        && moment().subtract(unhealthySeconds, 'seconds').isAfter(member.lastHeartbeatRecv);
+};
+
 /**
  * @param pod this is the Kubernetes pod, containing the info.
- * @returns podIp the pod's IP address with the default port of 27017 (retrieved from the config) attached at the end. Example
+ * @returns string - podIp the pod's IP address with the port from config attached at the end. Example
  * WWW.XXX.YYY.ZZZ:27017. It returns undefined, if the data is insufficient to retrieve the IP address.
  */
 var getPodIpAddressAndPort = function(pod) {
-  var podIpAddress = undefined;
-  if (pod && pod.status && pod.status.podIP) {
-    podIpAddress = pod.status.podIP + ":" + config.mongoPort;
+  if (!pod || !pod.status || !pod.status.podIP) {
+    return;
   }
-  return podIpAddress;
+
+  return pod.status.podIP + ":" + config.mongoPort;
 };
 
 /**
@@ -275,17 +288,16 @@ var getPodIpAddressAndPort = function(pod) {
  * <a href="https://kubernetes.io/docs/concepts/abstractions/controllers/statefulsets/#stable-network-id">Stateful Set documentation</a>
  * for more details. If those are not set, then simply the pod's IP is returned.
  * @param pod the Kubernetes pod, containing the information from the k8s client.
- * @returns stableNetworkAddress the k8s MongoDB stable network address, or undefined.
+ * @returns string the k8s MongoDB stable network address, or undefined.
  */
 var getPodStableNetworkAddressAndPort = function(pod) {
-  var podStableNetworkAddress = undefined;
-  if (config.k8sMongoServiceName && pod && pod.metadata && pod.metadata.name && pod.metadata.namespace) {
-    var clusterDomain = config.k8sClusterDomain;
-    var mongoPort = config.mongoPort;
-    podStableNetworkAddress = pod.metadata.name + "." + config.k8sMongoServiceName + "." + pod.metadata.namespace + ".svc." +
-      clusterDomain + ":" + mongoPort;
+  if (!config.k8sMongoServiceName || !pod || !pod.metadata || !pod.metadata.name || !pod.metadata.namespace) {
+    return;
   }
-  return podStableNetworkAddress;
+
+  var clusterDomain = config.k8sClusterDomain;
+  var mongoPort = config.mongoPort;
+  return pod.metadata.name + "." + config.k8sMongoServiceName + "." + pod.metadata.namespace + ".svc." + clusterDomain + ":" + mongoPort;
 };
 
 module.exports = {
